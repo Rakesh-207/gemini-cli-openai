@@ -1,3 +1,5 @@
+import { KVNamespace } from "@cloudflare/workers-types";
+
 // --- Safety Threshold Types ---
 export type SafetyThreshold =
 	| "BLOCK_NONE"
@@ -8,9 +10,9 @@ export type SafetyThreshold =
 
 // --- Environment Variable Typings ---
 export interface Env {
-	GCP_SERVICE_ACCOUNT: string; // Now contains OAuth2 credentials JSON
+	[key: string]: any; // Allow for dynamic GCP_SERVICE_ACCOUNT_X variables
 	GEMINI_PROJECT_ID?: string;
-	GEMINI_CLI_KV: KVNamespace; // Cloudflare KV for token caching
+	GEMINI_CLI_KV2: KVNamespace; // Cloudflare KV for token caching
 	OPENAI_API_KEY?: string; // Optional API key for authentication
 	ENABLE_FAKE_THINKING?: string; // Optional flag to enable fake thinking output (set to "true" to enable)
 	ENABLE_REAL_THINKING?: string; // Optional flag to enable real Gemini thinking output (set to "true" to enable)
@@ -20,6 +22,20 @@ export interface Env {
 	GEMINI_MODERATION_HATE_SPEECH_THRESHOLD?: SafetyThreshold;
 	GEMINI_MODERATION_SEXUALLY_EXPLICIT_THRESHOLD?: SafetyThreshold;
 	GEMINI_MODERATION_DANGEROUS_CONTENT_THRESHOLD?: SafetyThreshold;
+}
+
+// --- Credential and Rate Limit Management ---
+export interface RateLimitInfo {
+	isRateLimited: boolean;
+	expiresAt: number | null;
+}
+
+export interface CredentialStatus {
+	id: string; // A unique identifier, e.g., client_id
+	credentials: OAuth2Credentials;
+	rateLimit: {
+		[model: string]: RateLimitInfo; // e.g., 'gemini-1.5-flash': RateLimitInfo
+	};
 }
 
 // --- OAuth2 Credentials Interface ---

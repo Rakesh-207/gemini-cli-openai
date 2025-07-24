@@ -4,6 +4,7 @@ import { OpenAIRoute } from "./routes/openai";
 import { DebugRoute } from "./routes/debug";
 import { openAIApiKeyAuth } from "./middlewares/auth";
 import { loggingMiddleware } from "./middlewares/logging";
+import { authInitializer } from "./middlewares/auth-initializer";
 
 /**
  * Gemini CLI OpenAI Worker
@@ -40,6 +41,9 @@ app.use("*", async (c, next) => {
 
 	await next();
 });
+
+// Apply auth initializer middleware
+app.use("/v1/*", authInitializer);
 
 // Apply OpenAI API key authentication middleware to all /v1 routes
 app.use("/v1/*", openAIApiKeyAuth);

@@ -1,4 +1,4 @@
-name = "gemini-cli-worker"
+name = "gemini-cli-worker-2"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # --- KV Namespaces ---
 kv_namespaces = [
-  { binding = "GEMINI_CLI_KV", id = "6c761101b4a34c089e6a123f2782c5fd" }
+  { binding = "GEMINI_CLI_KV2", id = "1351cd8a47774bbdb9176035b94947d8" }
 ]
 
 # [vars]

@@ -1,0 +1,81 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Update src/types.ts for Multi-Credential Support",
+        "description": "Modify the Env interface to dynamically capture GCP_SERVICE_ACCOUNT_ prefixed environment variables and add new interfaces for rate limit tracking.",
+        "details": "Update the `Env` interface in `src/types.ts` to support an array of `OAuth2Credentials` or a mechanism to dynamically load them. Introduce new interfaces like `RateLimitInfo` and `CredentialStatus` to track rate-limiting per credential and per model (flash/pro).",
+        "testStrategy": "Verify that the application can correctly read multiple `GCP_SERVICE_ACCOUNT_X` environment variables. Ensure the new interfaces are correctly defined and can hold the necessary rate limit and credential status information.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done"
+      },
+      {
+        "id": 2,
+        "title": "Create CredentialManager Class",
+        "description": "Implement a new class to manage the pool of credentials, including loading, cyclical selection, and rate limit management.",
+        "details": "Create `src/credential-manager.ts` (or similar). This class will load credentials from environment variables, store their `OAuth2Credentials` along with their rate-limiting status for `gemini-1.5-flash` and `gemini-1.5-pro`. Implement methods for `getNextAvailableCredential(model: string)`, `markCredentialRateLimited(credentialId: string, model: string, duration: number)`, and a mechanism to automatically clear rate limits.",
+        "testStrategy": "Unit tests for `CredentialManager`: Verify correct loading of multiple credentials. Test cyclical selection, ensuring rate-limited credentials are skipped. Test marking/unmarking rate limits for specific models and that rate limits expire after the set duration.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done"
+      },
+      {
+        "id": 3,
+        "title": "Create Centralized Auth Middleware",
+        "description": "Create a new middleware to initialize a single AuthManager instance and attach it to the application context.",
+        "details": "Create a new file, e.g., `src/middlewares/auth-initializer.ts`. This middleware will instantiate the `AuthManager`, ensuring it has access to the KV namespace and other necessary environment variables. The instance will then be attached to the context (e.g., `c.set('authManager', authManager)`) for use in subsequent routes.",
+        "testStrategy": "Write a unit test for the middleware to verify that it correctly initializes the `AuthManager` and attaches it to the context. Test that the `authManager` is available in a downstream route handler.",
+        "priority": "high",
+        "dependencies": [
+          2
+        ],
+        "status": "done"
+      },
+      {
+        "id": 4,
+        "title": "Apply Auth Middleware and Refactor Routes",
+        "description": "Apply the new auth middleware in `src/index.ts` and refactor the route handlers to use the context-based AuthManager.",
+        "details": "In `src/index.ts`, apply the new auth middleware to all routes that require authentication. In `src/routes/openai.ts` and any other relevant routes, remove the local instantiation of `AuthManager` and instead retrieve it from the context (e.g., `const authManager = c.get('authManager')`).",
+        "testStrategy": "Verify that the application continues to function as expected after the refactoring. Test the chat completions endpoint to ensure that the `AuthManager` is correctly retrieved from the context and that authentication is still working.",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "status": "done"
+      },
+      {
+        "id": 5,
+        "title": "Implement Proactive Error Handling and Validation",
+        "description": "Add robust error handling and validation to the AuthManager and CredentialManager to prevent future issues.",
+        "details": "In `AuthManager`, add a check to ensure the KV namespace is available during initialization. In `CredentialManager`, add a warning if no credentials are found. Enhance logging throughout the authentication and credential management process to provide clearer insights during debugging.",
+        "testStrategy": "Test the new error handling by running the application without a KV namespace binding and verifying that a descriptive error is thrown. Test the credential loading with no credentials in the environment and check for the appropriate warning.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "done"
+      },
+      {
+        "id": 6,
+        "title": "Update Testing Suite for New Architecture",
+        "description": "Update the existing tests and create new ones to ensure the new middleware and centralized AuthManager are fully tested.",
+        "details": "Update existing tests for `AuthManager` and `CredentialManager` to reflect the new architecture. Create new tests for the auth middleware. Ensure the integration tests cover the end-to-end flow, including the middleware.",
+        "testStrategy": "Run all tests and ensure they pass. Achieve high test coverage for the new and modified code.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "done"
+      }
+    ],
+    "metadata": {
+      "created": "2025-07-24T13:03:07.474Z",
+      "updated": "2025-07-24T15:18:05.532Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

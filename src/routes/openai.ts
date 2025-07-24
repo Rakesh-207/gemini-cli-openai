@@ -7,10 +7,14 @@ import { AuthManager } from "../auth";
 import { GeminiApiClient } from "../gemini-client";
 import { createOpenAIStreamTransformer } from "../stream-transformer";
 
+type Variables = {
+  authManager: AuthManager;
+};
+
 /**
  * OpenAI-compatible API routes for models and chat completions.
  */
-export const OpenAIRoute = new Hono<{ Bindings: Env }>();
+export const OpenAIRoute = new Hono<{ Bindings: Env, Variables: Variables }>();
 
 // List available models
 OpenAIRoute.get("/models", async (c) => {
@@ -142,12 +146,12 @@ OpenAIRoute.post("/chat/completions", async (c) => {
 		});
 
 		// Initialize services
-		const authManager = new AuthManager(c.env);
+		const authManager = c.get("authManager");
 		const geminiClient = new GeminiApiClient(c.env, authManager);
 
 		// Test authentication first
 		try {
-			await authManager.initializeAuth();
+			await authManager.initializeAuth(model);
 			console.log("Authentication successful");
 		} catch (authError: unknown) {
 			const errorMessage = authError instanceof Error ? authError.message : String(authError);

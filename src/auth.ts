@@ -1,4 +1,5 @@
-import { Env, OAuth2Credentials } from "./types";
+import { Env, OAuth2Credentials, CredentialStatus } from "./types";
+import { CredentialManager } from "./credential-manager";
 import {
 	CODE_ASSIST_ENDPOINT,
 	CODE_ASSIST_API_VERSION,
@@ -37,28 +38,36 @@ interface TokenCacheInfo {
  */
 export class AuthManager {
 	private env: Env;
+	private credentialManager: CredentialManager;
 	private accessToken: string | null = null;
 
 	constructor(env: Env) {
+		if (!env.GEMINI_CLI_KV2) {
+			throw new Error("KV namespace GEMINI_CLI_KV2 is not bound.");
+		}
 		this.env = env;
+		this.credentialManager = new CredentialManager(env);
 	}
 
 	/**
 	 * Initializes authentication using OAuth2 credentials with KV storage caching.
 	 */
-	public async initializeAuth(): Promise<void> {
-		if (!this.env.GCP_SERVICE_ACCOUNT) {
-			throw new Error("`GCP_SERVICE_ACCOUNT` environment variable not set. Please provide OAuth2 credentials JSON.");
+	public async initializeAuth(model: string): Promise<void> {
+		const credentialStatus = this.credentialManager.getNextAvailableCredential(model);
+		if (!credentialStatus) {
+			throw new Error("No available credentials.");
 		}
+
+		const { id, credentials } = credentialStatus;
 
 		try {
 			// First, try to get a cached token from KV storage
 			let cachedTokenData = null;
 
 			try {
-				const cachedToken = await this.env.GEMINI_CLI_KV.get(KV_TOKEN_KEY, "json");
+				const cachedToken = await this.getCachedTokenInfo(id);
 				if (cachedToken) {
-					cachedTokenData = cachedToken as CachedTokenData;
+					cachedTokenData = cachedToken as unknown as CachedTokenData;
 					console.log("Found cached token in KV storage");
 				}
 			} catch (kvError) {
@@ -76,24 +85,21 @@ export class AuthManager {
 				console.log("Cached token expired or expiring soon");
 			}
 
-			// Parse original credentials from environment
-			const oauth2Creds: OAuth2Credentials = JSON.parse(this.env.GCP_SERVICE_ACCOUNT);
-
 			// Check if the original token is still valid
-			const timeUntilExpiry = oauth2Creds.expiry_date - Date.now();
+			const timeUntilExpiry = credentials.expiry_date - Date.now();
 			if (timeUntilExpiry > TOKEN_BUFFER_TIME) {
 				// Original token is still valid, cache it and use it
-				this.accessToken = oauth2Creds.access_token;
+				this.accessToken = credentials.access_token;
 				console.log(`Original token is valid for ${Math.floor(timeUntilExpiry / 1000)} more seconds`);
 
 				// Cache the token in KV storage
-				await this.cacheTokenInKV(oauth2Creds.access_token, oauth2Creds.expiry_date);
+				await this.cacheTokenInKV(id, credentials.access_token, credentials.expiry_date);
 				return;
 			}
 
 			// Both original and cached tokens are expired, refresh the token
 			console.log("All tokens expired, refreshing...");
-			await this.refreshAndCacheToken(oauth2Creds.refresh_token);
+			await this.refreshAndCacheToken(id, credentials.refresh_token);
 		} catch (e: unknown) {
 			const errorMessage = e instanceof Error ? e.message : String(e);
 			console.error("Failed to initialize authentication:", e);
@@ -104,7 +110,7 @@ export class AuthManager {
 	/**
 	 * Refresh the OAuth token and cache it in KV storage.
 	 */
-	private async refreshAndCacheToken(refreshToken: string): Promise<void> {
+	private async refreshAndCacheToken(credentialId: string, refreshToken: string): Promise<void> {
 		console.log("Refreshing OAuth token...");
 
 		const refreshResponse = await fetch(OAUTH_REFRESH_URL, {
@@ -136,13 +142,13 @@ export class AuthManager {
 		console.log(`New token expires in ${refreshData.expires_in} seconds`);
 
 		// Cache the new token in KV storage
-		await this.cacheTokenInKV(refreshData.access_token, expiryTime);
+		await this.cacheTokenInKV(credentialId, refreshData.access_token, expiryTime);
 	}
 
 	/**
 	 * Cache the access token in KV storage.
 	 */
-	private async cacheTokenInKV(accessToken: string, expiryDate: number): Promise<void> {
+	private async cacheTokenInKV(credentialId: string, accessToken: string, expiryDate: number): Promise<void> {
 		try {
 			const tokenData = {
 				access_token: accessToken,
@@ -150,11 +156,12 @@ export class AuthManager {
 				cached_at: Date.now()
 			};
 
+			const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
 			// Cache for slightly less than the token expiry to be safe
 			const ttlSeconds = Math.floor((expiryDate - Date.now()) / 1000) - 300; // 5 minutes buffer
 
 			if (ttlSeconds > 0) {
-				await this.env.GEMINI_CLI_KV.put(KV_TOKEN_KEY, JSON.stringify(tokenData), {
+				await this.env.GEMINI_CLI_KV2.put(cacheKey, JSON.stringify(tokenData), {
 					expirationTtl: ttlSeconds
 				});
 				console.log(`Token cached in KV storage with TTL of ${ttlSeconds} seconds`);
@@ -170,10 +177,11 @@ export class AuthManager {
 	/**
 	 * Clear cached token from KV storage.
 	 */
-	public async clearTokenCache(): Promise<void> {
+	public async clearTokenCache(credentialId: string): Promise<void> {
 		try {
-			await this.env.GEMINI_CLI_KV.delete(KV_TOKEN_KEY);
-			console.log("Cleared cached token from KV storage");
+			const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
+			await this.env.GEMINI_CLI_KV2.delete(cacheKey);
+			console.log(`Cleared cached token for credential ${credentialId} from KV storage`);
 		} catch (kvError) {
 			console.log("Error clearing KV cache:", kvError);
 		}
@@ -182,9 +190,10 @@ export class AuthManager {
 	/**
 	 * Get cached token info from KV storage.
 	 */
-	public async getCachedTokenInfo(): Promise<TokenCacheInfo> {
+	public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo> {
 		try {
-			const cachedToken = await this.env.GEMINI_CLI_KV.get(KV_TOKEN_KEY, "json");
+			const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
+			const cachedToken = await this.env.GEMINI_CLI_KV2.get(cacheKey, "json");
 			if (cachedToken) {
 				const tokenData = cachedToken as CachedTokenData;
 				const timeUntilExpiry = tokenData.expiry_date - Date.now();
@@ -209,7 +218,8 @@ export class AuthManager {
 	 * A generic method to call a Code Assist API endpoint.
 	 */
 	public async callEndpoint(method: string, body: Record<string, unknown>, isRetry: boolean = false): Promise<unknown> {
-		await this.initializeAuth();
+		const model = body.model as string;
+		await this.initializeAuth(model);
 
 		const response = await fetch(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`, {
 			method: "POST",
@@ -221,11 +231,22 @@ export class AuthManager {
 		});
 
 		if (!response.ok) {
+			if (response.status === 429) {
+				const credentialStatus = this.credentialManager.getCurrentCredential();
+				if (credentialStatus) {
+					this.credentialManager.markCredentialRateLimited(credentialStatus.id, model, 3600); // 1 hour
+				}
+				return this.callEndpoint(method, body, true);
+			}
+
 			if (response.status === 401 && !isRetry) {
 				console.log("Got 401 error, clearing token cache and retrying...");
 				this.accessToken = null; // Clear cached token
-				await this.clearTokenCache(); // Clear KV cache
-				await this.initializeAuth(); // This will refresh the token
+				const credentialStatus = this.credentialManager.getCurrentCredential();
+				if (credentialStatus) {
+					await this.clearTokenCache(credentialStatus.id); // Clear KV cache
+				}
+				await this.initializeAuth(model); // This will refresh the token
 				return this.callEndpoint(method, body, true); // Retry once
 			}
 			const errorText = await response.text();

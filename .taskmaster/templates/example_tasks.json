@@ -1,0 +1,187 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Setup Project and Dependencies",
+      "description": "Set up the basic project structure, initialize Node.js project, and install necessary dependencies like Express and Puppeteer.",
+      "details": "Initialize a new Node.js project using `npm init` or `yarn init`. Install Express (`npm install express`) and Puppeteer (`npm install puppeteer`). Consider using TypeScript and installing `@types/express` and `@types/puppeteer`.",
+      "testStrategy": "Verify that the project initializes correctly and all specified dependencies are installed without errors.",
+      "priority": "high",
+      "dependencies": [],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 2,
+      "title": "Setup Express Server with Increased Payload Limit and SSE",
+      "description": "Configure an Express.js server to listen on a local port, set up body parsing with an increased payload limit, and prepare for streaming responses (SSE).",
+      "details": "Create an Express application instance. Use `express.json()` and `express.urlencoded()` middleware with `limit` options set to a sufficiently large value (e.g., '50mb') to handle potentially large request bodies. Configure routes, specifically one mimicking the Gemini API path like `/v1beta/models/gemini-pro:generateContent`. Set response headers for SSE (`Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`).",
+      "testStrategy": "Start the Express server and verify it listens on the configured port. Test with a large dummy POST request to the endpoint to ensure the payload limit is increased. Verify that setting SSE headers doesn't cause immediate errors.",
+      "priority": "high",
+      "dependencies": [
+        1
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 3,
+      "title": "Configure Puppeteer to Connect to Existing Chrome Profile",
+      "description": "Configure Puppeteer to launch a new Chrome instance using an existing user data directory, effectively leveraging an existing profile's authentication and settings.",
+      "status": "done",
+      "dependencies": [
+        1
+      ],
+      "priority": "high",
+      "details": "Use `puppeteer.launch()` with the `userDataDir` option pointing to the desired Chrome user profile path. This will launch a new browser instance that uses the specified profile's data (cookies, local storage, etc.).",
+      "testStrategy": "Identify the path to an existing Chrome user profile directory. Write a small script using `puppeteer.launch` with the `userDataDir` option set to this path. Verify that Puppeteer successfully launches a new browser instance and that it appears to be using the specified profile (e.g., check for logged-in status on a known site if the profile was logged in).",
+      "subtasks": []
+    },
+    {
+      "id": 4,
+      "title": "Navigate to AI Studio Chat Page",
+      "description": "Navigate the connected browser instance to the Google AI Studio chat page (https://aistudio.google.com/prompts/new_chat).",
+      "details": "Obtain a `page` object from the connected browser. Use `page.goto('https://aistudio.google.com/prompts/new_chat')`. Implement basic waiting for the page to load, e.g., `waitUntil: 'domcontentloaded'` or `networkidle2`.",
+      "testStrategy": "Run the navigation code. Observe the connected Chrome instance to ensure it successfully navigates to the AI Studio URL. Check for navigation errors in the script output.",
+      "priority": "high",
+      "dependencies": [
+        3
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 5,
+      "title": "Handle Initial Page Elements (Cookies, Popups, Viewport)",
+      "description": "Implement logic to detect and dismiss the cookie notification bar and any initial popups (like 'It's time to build') that may appear upon page load. Also, set an appropriate viewport size.",
+      "details": "After navigation, use `page.waitForSelector` with a timeout or `page.evaluate` to check for the presence of known cookie bar or popup selectors. If found, use `page.click` on the appropriate dismiss/accept button. Implement retries or checks to handle variations. Set the viewport using `page.setViewport({ width: 1280, height: 800 })` or similar.",
+      "testStrategy": "Load the page multiple times under different conditions (e.g., first visit vs. subsequent). Verify that the cookie bar and popups are automatically dismissed. Check that the viewport is set correctly.",
+      "priority": "high",
+      "dependencies": [
+        4
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 6,
+      "title": "Implement Prompt Input",
+      "description": "Locate the prompt input `textarea` and implement the functionality to type the user's prompt text into it.",
+      "details": "Use `page.waitForSelector` to find the prompt `textarea` using its `aria-label=\"Type something or tab to choose an example prompt\"`. Once found, use `page.type()` or `page.focus()` followed by `page.keyboard.type()` to input the prompt text.",
+      "testStrategy": "Manually navigate to the page (or use the script up to task 5). Run the prompt input code with a test string. Verify that the text appears correctly in the prompt `textarea` in the connected browser.",
+      "priority": "high",
+      "dependencies": [
+        5
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 7,
+      "title": "Implement Prompt Submission",
+      "description": "Locate the 'Run' button and implement the functionality to click it to submit the prompt.",
+      "details": "Use `page.waitForSelector` to find the 'Run' `button` using its `aria-label=\"Run\"` and `type=\"submit\"`. Once found, use `page.click()` to submit the prompt. Add a small delay or wait for a network request related to submission if necessary.",
+      "testStrategy": "Input text using the code from task 6. Run the prompt submission code. Verify that the 'Run' button is clicked and the UI indicates processing (e.g., button becomes disabled).",
+      "priority": "high",
+      "dependencies": [
+        6
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 8,
+      "title": "Implement Response Retrieval",
+      "description": "Implement logic to wait for the AI response to complete streaming (indicated by the 'Run' button becoming disabled) and then extract the full text from the final `ms-chat-turn` element, excluding 'thought' chunks.",
+      "details": "After clicking 'Run', wait for the button to become disabled using `page.waitForSelector('button[aria-label=\"Run\"]:disabled')`. Once disabled, locate the last `ms-chat-turn` element. Use `page.evaluate` to select this element and extract its text content, carefully excluding any elements or text identified as 'thought' chunks based on their structure or class names within the `ms-chat-turn`.",
+      "testStrategy": "Submit a prompt using the code from tasks 6 and 7. Run the response retrieval code. Verify that the script waits for the response to finish and correctly extracts the final AI response text, excluding any internal thought processes shown in the UI.",
+      "priority": "high",
+      "dependencies": [
+        7
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 9,
+      "title": "Implement 'Clear Chat' Confirmation Handling",
+      "description": "Implement handling for the 'Clear Chat' confirmation dialog that appears when starting a new conversation, specifically clicking the 'Continue' button.",
+      "details": "When a new chat is requested (via the `newChat` parameter), identify the action needed to initiate a new chat in the UI (e.g., clicking a 'New Chat' button). After this action, wait for the confirmation dialog to appear. Use `page.waitForSelector` to find the 'Continue' button within the dialog and `page.click()` to dismiss it and proceed with the new chat.",
+      "testStrategy": "Manually trigger a 'Clear Chat' action in the connected browser. Run the confirmation handling code. Verify that the script detects and clicks the 'Continue' button in the dialog.",
+      "priority": "medium",
+      "dependencies": [
+        5
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 10,
+      "title": "Implement Core Browser Interaction Function",
+      "description": "Create a core function that orchestrates the browser interaction steps: navigating (if needed), handling initial elements, clearing chat (if `newChat` is true), inputting prompt, submitting, and retrieving the response.",
+      "details": "Wrap the logic from tasks 4, 5, 6, 7, 8, and 9 into a single asynchronous function, e.g., `interactWithAIStudio(promptText, newChat)`. This function will take the prompt and the `newChat` flag as input. Inside, it will decide whether to navigate/handle initial elements (maybe only on the first call or if the page state is invalid), trigger the clear chat logic if `newChat` is true, then perform input, submit, and response retrieval. It should return the extracted response text.",
+      "testStrategy": "Call the core function with test prompts and `newChat` true/false. Verify that it correctly performs the sequence of actions in the browser and returns the expected response text for both new and ongoing conversations.",
+      "priority": "high",
+      "dependencies": [
+        8,
+        9
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 11,
+      "title": "Setup API Endpoint Handler",
+      "description": "Set up the API endpoint handler in Express to receive incoming requests, parse the request body, call the core browser interaction function, and initiate the response streaming.",
+      "details": "In the Express app, define a POST route for the Gemini API path (`/v1beta/models/gemini-pro:generateContent`). Inside the handler, access the request body. Call the `interactWithAIStudio` function (from task 10) with the extracted prompt and `newChat` flag. Once the interaction function starts processing, begin sending the response back to the client, preparing for SSE formatting.",
+      "testStrategy": "Send a POST request to the local API endpoint using a tool like `curl` or Postman. Verify that the Express handler is triggered and that it successfully calls the core browser interaction function.",
+      "priority": "high",
+      "dependencies": [
+        2,
+        10
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 12,
+      "title": "Implement Request Body Transformation",
+      "description": "Implement logic within the API handler to parse the incoming request body (formatted for Gemini API) and extract the user's prompt text and the `newChat` parameter.",
+      "details": "Access `req.body` in the Express route handler. The Gemini API `generateContent` request body typically contains a `contents` array, where each item has a `parts` array with `text`. Extract the relevant text. The `newChat` parameter needs to be defined and extracted from the request body as per the PRD's requirement.",
+      "testStrategy": "Send a mock Gemini API request body to the endpoint. Debug or log the extracted prompt text and `newChat` flag within the handler to ensure they are correctly parsed from the incoming JSON.",
+      "priority": "high",
+      "dependencies": [
+        11
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 13,
+      "title": "Implement Response Body Transformation and SSE Streaming",
+      "description": "Implement logic to format the response received from AI Studio into a JSON structure resembling the Gemini API's streaming format and send it as Server-Sent Events (SSE).",
+      "details": "After retrieving the full response text from AI Studio (Task 8), format it into a JSON object that mimics the Gemini API's streaming chunks. This typically involves a structure like `{ candidates: [ { content: { parts: [ { text: '...' } ] } } ] }`. Send this JSON as an SSE `data` event, prefixed with `data: ` and followed by `\\n\\n`. Since AI Studio provides the full response at once, this might involve sending the entire response as a single SSE chunk or breaking it down artificially if true streaming simulation is desired (though the PRD implies getting the full response after completion). Terminate the stream by ending the response (`res.end()`).",
+      "testStrategy": "Send a prompt via the API endpoint. Use a client capable of receiving SSE (like `curl --sse` or a browser's EventSource API). Verify that the response is received as SSE, is correctly formatted as JSON resembling the Gemini API structure, and contains the AI's response text. Ensure the stream terminates correctly.",
+      "priority": "high",
+      "dependencies": [
+        11,
+        8
+      ],
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "id": 14,
+      "title": "Add Error Handling and Robustness",
+      "description": "Add comprehensive error handling for Puppeteer failures (element not found, navigation errors), network issues, parsing errors, and unexpected page changes. Implement retry mechanisms where appropriate.",
+      "details": "Wrap Puppeteer interactions in try-catch blocks. Implement specific error handling for common issues like selectors not found (`page.waitForSelector` timeouts). Handle potential network errors during navigation or submission. Implement retry logic for transient failures. Log errors effectively. Consider how errors in the browser interaction should be reported back via the API endpoint (e.g., sending an error response in the SSE stream or an HTTP error code).",
+      "testStrategy": "Introduce failures manually (e.g., make a selector incorrect, disconnect network, close the browser). Verify that the application catches the errors gracefully, logs them, and ideally attempts retries or provides a meaningful error response via the API.",
+      "priority": "medium",
+      "dependencies": [
+        13
+      ],
+      "status": "done",
+      "subtasks": []
+    }
+  ]
+}
