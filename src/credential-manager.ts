@@ -11,7 +11,7 @@ export class CredentialManager {
                 try {
                     const creds = JSON.parse(env[key]);
                     this.credentials.push({
-                        id: creds.client_id,
+                        id: creds.project_id,
                         credentials: creds,
                         rateLimit: {},
                     });
