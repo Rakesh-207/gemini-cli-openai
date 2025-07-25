@@ -1,5 +1,17 @@
 # Plan: Graceful Rate-Limit Handling with Credential Cycling
 
+**Implementation Notes for the AI Assistant:**
+
+This document has been updated to address a flaw in the initial implementation. The immediate priority is to fix the authentication retry loop. Please implement the following:
+
+1.  **Update `performRequest` in `src/gemini-client.ts`:** Modify the handling of 401/403 errors to include a retry limit and exponential backoff, as detailed in the updated "Automatic Credential Refresh" section (3.6).
+2.  **Verify the new logic:** Ensure that credentials that repeatedly fail to refresh are correctly marked as rate-limited to prevent them from being used again.
+---
+
+This document outlines the plan to refactor the application to intelligently handle API rate limits and authentication failures, ensuring a seamless experience for the end user. We will achieve this by creating a robust retry mechanism that automatically cycles through available credentials when a rate limit or authentication error is encountered.
+
+---
+
 This document outlines the plan to refactor the application to intelligently handle API rate limits, ensuring a seamless experience for the end user. We will achieve this by creating a robust retry mechanism that automatically cycles through available credentials when a rate limit is encountered.
 
 ---
@@ -31,7 +43,7 @@ To address this, we will implement a more robust and resilient architecture for 
 -   **Objective:** To give the `GeminiApiClient` a clear and efficient way to get a list of usable credentials.
 -   **Action:**
     -   We will introduce a new public method, `getAvailableCredentials(model: string)`, which will return an array of all credentials that are not currently rate-limited for the specified model.
-    -   We will refactor the `markCredentialRateLimited` method to be more precise. It will now set the `isRateLimited` flag to `true` and use a `setTimeout` to reset it to `false` after the rate-limit period has expired.
+    -   We will refactor the `markCredentialRateLimited` method to be more precise. It will now set the `isRateLimited` flag to `true` and use the `expiresAt` timestamp to determine when the credential should be used again.
 
 #### **3.3. `src/auth.ts` - Streamlining the `AuthManager`**
 
@@ -43,24 +55,39 @@ To address this, we will implement a more robust and resilient architecture for 
 
 -   **Objective:** To implement a robust, self-healing mechanism for handling API requests and rate limits.
 -   **Action:**
-    -   A new private method, `performRequest`, will be created to handle the logic of making a single API call.
-    -   The `streamContent` and `getCompletion` methods will be refactored to include a new retry loop. This loop will be the heart of the solution.
-    -   Inside the loop, the `credentialManager.getAvailableCredentials()` method will be called to get a fresh list of available credentials for each attempt.
-    -   The loop will then iterate through these credentials, using `performRequest` to make the API call.
-    -   If a 429 error is encountered, the `credentialManager.markCredentialRateLimited()` method will be called, and the loop will seamlessly move on to the next available credential.
-    -   If all credentials are exhausted, a clear and informative error will be thrown.
+    -   The `performRequest` method will be updated to include intelligent error handling.
+    -   The `streamContent` and `getCompletion` methods will use this new `performRequest` method.
+
+#### **3.5. Intelligent Error Handling**
+
+-   **Objective:** To create a sophisticated error-handling mechanism that can differentiate between different types of errors and take the appropriate action for each.
+-   **Action:**
+    -   **Rate-Limit Errors (429):** When a 429 error is received, the credential will be marked as rate-limited, and the system will automatically try the next available credential.
+    -   **Server Errors (5xx):** For temporary server errors, the system will retry the request with the same credential up to three times with an exponential backoff. If the error persists, the credential will be marked as rate-limited, and the system will move to the next credential.
+    -   **Client Errors (4xx):** For client-side errors (e.g., a bad request), the system will fail immediately and report the error, as retrying would be futile.
+
+#### **3.6. Automatic Credential Refresh**
+
+-   **Objective:** To create a self-healing system that can automatically refresh expired credentials without disrupting the user's workflow.
+-   **Action:**
+    -   A new public method, `refreshCredential(credentialId: string, refreshToken: string)`, will be created in the `AuthManager`.
+    -   The `performRequest` method in the `GeminiApiClient` will be updated to catch `401 Unauthorized` and `403 Forbidden` errors.
+    -   When one of these errors is caught, the `performRequest` method will:
+        -   Attempt to refresh the token using the `refreshCredential` method up to three times with an exponential backoff.
+        -   If the refresh is successful, it will retry the original request with the new token.
+        -   If the refresh fails after three attempts, the credential will be marked as rate-limited for one hour, and the system will move on to the next available credential.
 
 ---
 
 ### **4. Benefits of the New Approach**
 
-The new architecture will provide a seamless and professional user experience by eliminating the jarring 429 errors. The new implementation will be more resilient and easier to maintain, as the error handling and credential management logic will be centralized and more robust.
+The new architecture will provide a seamless and professional user experience by eliminating jarring errors. The new implementation will be more resilient and easier to maintain, as the error handling and credential management logic will be centralized and more robust.
 
 ---
 
 ### **5. Visualizing the New Flow**
 
-Here is a Mermaid diagram that illustrates the new, more robust flow of control:
+Here is a Mermaid diagram that illustrates the new, more robust flow of control, including the new server error retry logic and the updated credential refresh mechanism:
 
 ```mermaid
 sequenceDiagram
@@ -68,14 +95,22 @@ sequenceDiagram
     participant RouteHandler
     participant GeminiApiClient
     participant CredentialManager
+    participant AuthManager
     participant GoogleAPI
 
     User->>+RouteHandler: /v1/chat/completions
     RouteHandler->>+GeminiApiClient: streamContent()
     GeminiApiClient->>+CredentialManager: getAvailableCredentials()
     CredentialManager-->>-GeminiApiClient: [Credential1, Credential2]
+    
     GeminiApiClient->>+GoogleAPI: API Request with Credential1
-    GoogleAPI-->>-GeminiApiClient: 429 Rate Limit Error
+    GoogleAPI-->>-GeminiApiClient: 401 Unauthorized
+
+    loop 3 Times with Exponential Backoff
+        GeminiApiClient->>+AuthManager: refreshCredential(Credential1)
+        AuthManager-->>-GeminiApiClient: Refresh Fails
+    end
+
     GeminiApiClient->>+CredentialManager: markCredentialRateLimited(Credential1)
     GeminiApiClient->>+GoogleAPI: API Request with Credential2
     GoogleAPI-->>-GeminiApiClient: Success (200 OK)

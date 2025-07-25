@@ -94,7 +94,7 @@ export class AuthManager {
 
 			// Both original and cached tokens are expired, refresh the token
 			console.log("All tokens expired, refreshing...");
-			await this.refreshAndCacheToken(id, credentials.refresh_token);
+			await this.refreshCredential(id, credentials.refresh_token);
 		} catch (e: unknown) {
 			const errorMessage = e instanceof Error ? e.message : String(e);
 			console.error("Failed to initialize authentication:", e);
@@ -105,7 +105,7 @@ export class AuthManager {
 	/**
 	 * Refresh the OAuth token and cache it in KV storage.
 	 */
-	private async refreshAndCacheToken(credentialId: string, refreshToken: string): Promise<void> {
+	public async refreshCredential(credentialId: string, refreshToken: string): Promise<void> {
 		console.log("Refreshing OAuth token...");
 
 		const refreshResponse = await fetch(OAUTH_REFRESH_URL, {
