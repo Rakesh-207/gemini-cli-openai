@@ -4,11 +4,13 @@ import { geminiCliModels, DEFAULT_MODEL, getAllModelIds } from "../models";
 import { OPENAI_MODEL_OWNER } from "../config";
 import { DEFAULT_THINKING_BUDGET } from "../constants";
 import { AuthManager } from "../auth";
+import { CredentialManager } from "../credential-manager";
 import { GeminiApiClient } from "../gemini-client";
 import { createOpenAIStreamTransformer } from "../stream-transformer";
 
 type Variables = {
-  authManager: AuthManager;
+	authManager: AuthManager;
+	credentialManager: CredentialManager;
 };
 
 /**
@@ -147,17 +149,10 @@ OpenAIRoute.post("/chat/completions", async (c) => {
 
 		// Initialize services
 		const authManager = c.get("authManager");
-		const geminiClient = new GeminiApiClient(c.env, authManager);
+		const credentialManager = c.get("credentialManager");
+		const geminiClient = new GeminiApiClient(c.env, authManager, credentialManager);
 
-		// Test authentication first
-		try {
-			await authManager.initializeAuth(model);
-			console.log("Authentication successful");
-		} catch (authError: unknown) {
-			const errorMessage = authError instanceof Error ? authError.message : String(authError);
-			console.error("Authentication failed:", errorMessage);
-			return c.json({ error: "Authentication failed: " + errorMessage }, 401);
-		}
+		// Authentication is now handled within the GeminiApiClient
 
 		if (stream) {
 			// Streaming response

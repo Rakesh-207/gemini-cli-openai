@@ -70,11 +70,23 @@
           5
         ],
         "status": "done"
+      },
+      {
+        "id": 7,
+        "title": "Implement Graceful 429 Error Handling",
+        "description": "Refactor the AuthManager to handle 429 rate limit errors by cycling through available credentials instead of streaming the error to the user.",
+        "details": "The `AuthManager.callEndpoint` method has been refactored to use a loop instead of recursion for handling 429 errors. The `CredentialManager` has been updated to expose the full credential cycle and to correctly identify the last used credential. The `src/routes/openai.ts` has been updated to align with the new `AuthManager` implementation. A null check was added to `callEndpoint` to prevent a `TypeError` when all credentials are rate-limited.",
+        "testStrategy": "Verify that the application correctly handles 429 errors by using a mock API that returns a 429 status code. Ensure that the application cycles through the available credentials and that the user does not see the 429 error. Also, test the case where all credentials are rate-limited and ensure the application fails gracefully.",
+        "priority": "high",
+        "dependencies": [
+          6
+        ],
+        "status": "done"
       }
     ],
     "metadata": {
       "created": "2025-07-24T13:03:07.474Z",
-      "updated": "2025-07-24T15:18:05.532Z",
+      "updated": "2025-07-25T08:17:13.474Z",
       "description": "Tasks for master context"
     }
   }

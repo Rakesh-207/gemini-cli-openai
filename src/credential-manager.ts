@@ -25,32 +25,37 @@ export class CredentialManager {
         }
     }
 
-    public getNextAvailableCredential(model: string): CredentialStatus | null {
-        // Cyclical selection logic that skips rate-limited credentials for the given model
-        const startIndex = this.currentIndex;
-        do {
-            const credential = this.credentials[this.currentIndex];
-            this.currentIndex = (this.currentIndex + 1) % this.credentials.length;
-            if (!credential.rateLimit[model] || !credential.rateLimit[model].isRateLimited) {
-                return credential;
+    public getAvailableCredentials(model: string): CredentialStatus[] {
+        return this.credentials.filter(cred => {
+            const rateLimitInfo = cred.rateLimit[model];
+            if (!rateLimitInfo) {
+                return true; // Not rate-limited if no info exists
             }
-        } while (this.currentIndex !== startIndex);
-        return null;
+            // Check if the rate limit has expired
+            if (rateLimitInfo.isRateLimited && rateLimitInfo.expiresAt && Date.now() >= rateLimitInfo.expiresAt) {
+                // Reset the rate limit status
+                rateLimitInfo.isRateLimited = false;
+                rateLimitInfo.expiresAt = null;
+                return true; // Now available
+            }
+            return !rateLimitInfo.isRateLimited;
+        });
     }
 
     public markCredentialRateLimited(credentialId: string, model: string, durationSeconds: number): void {
-        // Logic to mark a credential as rate-limited for a specific model
         const credential = this.credentials.find(c => c.id === credentialId);
         if (credential) {
+            const expiresAt = Date.now() + durationSeconds * 1000;
             credential.rateLimit[model] = {
                 isRateLimited: true,
-                expiresAt: Date.now() + durationSeconds * 1000,
+                expiresAt: expiresAt,
             };
+            console.log(`Credential ${credentialId} for model ${model} is rate limited until ${new Date(expiresAt).toISOString()}`);
+
+            // Optional: You can still use setTimeout to log when it expires, but the primary logic is now based on expiresAt timestamp
             setTimeout(() => {
-                credential.rateLimit[model] = {
-                    isRateLimited: false,
-                    expiresAt: null,
-                };
+                console.log(`Rate limit duration for ${credentialId} on model ${model} has passed.`);
+                // The isRateLimited flag will be reset on the next getAvailableCredentials call
             }, durationSeconds * 1000);
         }
     }
@@ -59,6 +64,12 @@ export class CredentialManager {
         if (this.credentials.length === 0) {
             return null;
         }
-        return this.credentials[this.currentIndex];
+        // Return the last used credential, not the next one
+        const lastIndex = (this.currentIndex + this.credentials.length - 1) % this.credentials.length;
+        return this.credentials[lastIndex];
+    }
+
+    public getCredentialCycle(): CredentialStatus[] {
+        return this.credentials;
     }
 }

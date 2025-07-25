@@ -10,6 +10,7 @@ import {
 	GeminiFunctionCall
 } from "./types";
 import { AuthManager } from "./auth";
+import { CredentialManager } from "./credential-manager";
 import { CODE_ASSIST_ENDPOINT, CODE_ASSIST_API_VERSION } from "./config";
 import { REASONING_MESSAGES, REASONING_CHUNK_DELAY, THINKING_CONTENT_CHUNK_SIZE } from "./constants";
 import { geminiCliModels } from "./models";
@@ -86,12 +87,14 @@ function isTextContent(content: MessageContent): content is TextContent {
 export class GeminiApiClient {
 	private env: Env;
 	private authManager: AuthManager;
+	private credentialManager: CredentialManager;
 	private projectId: string | null = null;
 	private autoSwitchHelper: AutoModelSwitchingHelper;
 
-	constructor(env: Env, authManager: AuthManager) {
+	constructor(env: Env, authManager: AuthManager, credentialManager: CredentialManager) {
 		this.env = env;
 		this.authManager = authManager;
+		this.credentialManager = credentialManager;
 		this.autoSwitchHelper = new AutoModelSwitchingHelper(env);
 	}
 
@@ -106,25 +109,20 @@ export class GeminiApiClient {
 			return this.projectId;
 		}
 
-		try {
-			const initialProjectId = "default-project";
-			const loadResponse = (await this.authManager.callEndpoint("loadCodeAssist", {
-				cloudaicompanionProject: initialProjectId,
-				metadata: { duetProject: initialProjectId }
-			})) as ProjectDiscoveryResponse;
+		const initialProjectId = "default-project";
+		const body = {
+			cloudaicompanionProject: initialProjectId,
+			metadata: { duetProject: initialProjectId },
+		};
 
-			if (loadResponse.cloudaicompanionProject) {
-				this.projectId = loadResponse.cloudaicompanionProject;
-				return loadResponse.cloudaicompanionProject;
-			}
-			throw new Error("Project ID discovery failed. Please set the GEMINI_PROJECT_ID environment variable.");
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			console.error("Failed to discover project ID:", errorMessage);
-			throw new Error(
-				"Could not discover project ID. Make sure you're authenticated and consider setting GEMINI_PROJECT_ID."
-			);
+		const response = await this.performRequest("loadCodeAssist", body);
+		const loadResponse = (await response.json()) as ProjectDiscoveryResponse;
+
+		if (loadResponse.cloudaicompanionProject) {
+			this.projectId = loadResponse.cloudaicompanionProject;
+			return loadResponse.cloudaicompanionProject;
 		}
+		throw new Error("Project ID discovery failed. Please set the GEMINI_PROJECT_ID environment variable.");
 	}
 
 	/**
@@ -314,7 +312,6 @@ export class GeminiApiClient {
 			};
 		}
 	): AsyncGenerator<StreamChunk> {
-		await this.authManager.initializeAuth();
 		const projectId = await this.discoverProjectId();
 
 		const contents = messages.map((msg) => this.messageToGeminiFormat(msg));
@@ -481,6 +478,53 @@ export class GeminiApiClient {
 	/**
 	 * Performs the actual stream request with retry logic for 401 errors and auto model switching for rate limits.
 	 */
+	private async performRequest(
+		method: string,
+		body: Record<string, unknown>,
+		isStream: boolean = false
+	): Promise<Response> {
+		const availableCredentials = this.credentialManager.getAvailableCredentials(body.model as string);
+
+		if (availableCredentials.length === 0) {
+			throw new Error("All credentials are currently rate-limited.");
+		}
+
+		for (const credential of availableCredentials) {
+			try {
+				await this.authManager.initializeAuth(credential);
+				const url = isStream
+					? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}?alt=sse`
+					: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`;
+
+				const response = await fetch(url, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${this.authManager.getAccessToken()}`,
+					},
+					body: JSON.stringify(body),
+				});
+
+				if (response.status === 429) {
+					console.log(`Credential ${credential.id} rate-limited. Trying next credential.`);
+					this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600); // 1 hour
+					continue;
+				}
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(`API call failed with status ${response.status}: ${errorText}`);
+				}
+
+				return response;
+			} catch (error) {
+				console.error(`Error with credential ${credential.id}:`, error);
+			}
+		}
+
+		throw new Error("All available credentials failed.");
+	}
+
 	private async *performStreamRequest(
 		streamRequest: unknown,
 		needsThinkingClose: boolean = false,
@@ -488,59 +532,7 @@ export class GeminiApiClient {
 		realThinkingAsContent: boolean = false,
 		originalModel?: string
 	): AsyncGenerator<StreamChunk> {
-		const response = await fetch(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:streamGenerateContent?alt=sse`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${this.authManager.getAccessToken()}`
-			},
-			body: JSON.stringify(streamRequest)
-		});
-
-		if (!response.ok) {
-			if (response.status === 401 && !isRetry) {
-				console.log("Got 401 error in stream request, clearing token cache and retrying...");
-				await this.authManager.clearTokenCache();
-				await this.authManager.initializeAuth();
-				yield* this.performStreamRequest(streamRequest, needsThinkingClose, true, realThinkingAsContent, originalModel); // Retry once
-				return;
-			}
-
-			// Handle rate limiting with auto model switching
-			if (this.autoSwitchHelper.isRateLimitStatus(response.status) && !isRetry && originalModel) {
-				const fallbackModel = this.autoSwitchHelper.getFallbackModel(originalModel);
-				if (fallbackModel && this.autoSwitchHelper.isEnabled()) {
-					console.log(
-						`Got ${response.status} error for model ${originalModel}, switching to fallback model: ${fallbackModel}`
-					);
-
-					// Create new request with fallback model
-					const fallbackRequest = {
-						...(streamRequest as Record<string, unknown>),
-						model: fallbackModel
-					};
-
-					// Add a notification chunk about the model switch
-					yield {
-						type: "text",
-						data: this.autoSwitchHelper.createSwitchNotification(originalModel, fallbackModel)
-					};
-
-					yield* this.performStreamRequest(
-						fallbackRequest,
-						needsThinkingClose,
-						true,
-						realThinkingAsContent,
-						originalModel
-					);
-					return;
-				}
-			}
-
-			const errorText = await response.text();
-			console.error(`[GeminiAPI] Stream request failed: ${response.status}`, errorText);
-			throw new Error(`Stream request failed: ${response.status}`);
-		}
+		const response = await this.performRequest("streamGenerateContent", streamRequest as Record<string, unknown>, true);
 
 		if (!response.body) {
 			throw new Error("Response has no body");

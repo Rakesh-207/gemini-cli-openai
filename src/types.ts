@@ -34,7 +34,7 @@ export interface CredentialStatus {
 	id: string; // A unique identifier, e.g., client_id
 	credentials: OAuth2Credentials;
 	rateLimit: {
-		[model: string]: RateLimitInfo; // e.g., 'gemini-1.5-flash': RateLimitInfo
+		[model: string]: RateLimitInfo;
 	};
 }
 

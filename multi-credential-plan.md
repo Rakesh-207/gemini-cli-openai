@@ -1,97 +1,83 @@
-# Plan for Implementing Multi-Credential Support with Rate Limiting
+# Plan: Graceful Rate-Limit Handling with Credential Cycling
 
-This document outlines the plan to modify the application to support multiple OAuth2 credentials, with a cyclical selection mechanism and rate limiting for different Gemini models.
+This document outlines the plan to refactor the application to intelligently handle API rate limits, ensuring a seamless experience for the end user. We will achieve this by creating a robust retry mechanism that automatically cycles through available credentials when a rate limit is encountered.
 
-## 1. Credential Storage and Management
+---
 
-### 1.1. Environment Variable Configuration
+### **1. The Problem: Unhandled 429 Errors**
 
-We will move from a single `GCP_SERVICE_ACCOUNT` environment variable to a numbered sequence of variables to support multiple credentials:
+The application currently streams 429 rate limit errors directly to the end user, which is a jarring and unprofessional experience. As seen in the `worker-logs.md`, when a credential hits its API quota, the application fails to handle the error gracefully. This not only disrupts the user's workflow but also fails to leverage the multi-credential architecture that was put in place to prevent this exact scenario.
 
--   `GCP_SERVICE_ACCOUNT_1`
--   `GCP_SERVICE_ACCOUNT_2`
--   `GCP_SERVICE_ACCOUNT_3`
--   ...and so on.
+---
 
-Each variable will contain the JSON object for a single OAuth2 credential.
+### **2. Current Flawed Implementation**
 
-### 1.2. `Env` Interface Update
+While the `AuthManager` in `src/auth.ts` has a basic catch for 429 errors, it's not sufficient. The core issue is that the error is not being propagated in a way that allows the `GeminiApiClient` to react. The `callEndpoint` method in `AuthManager` is too generic, and the responsibility for handling API-specific errors should lie with the `GeminiApiClient`.
 
-The `Env` interface in `src/types.ts` will be updated to reflect this change. We will use a dynamic approach to capture all `GCP_SERVICE_ACCOUNT_` prefixed variables.
+---
 
-## 2. Centralized AuthManager and Middleware
+### **3. The Solution: A Robust New Architecture**
 
-### 2.1. The Root Cause of the KV Error
+To address this, we will implement a more robust and resilient architecture for handling API requests and rate limits.
 
-The core issue is that the `AuthManager` was being instantiated within the route handler, which does not have direct access to the Cloudflare KV namespace binding (`GEMINI_CLI_KV`). This resulted in the `TypeError: Cannot read properties of undefined (reading 'put')` because the KV namespace was `undefined`.
+#### **3.1. `src/types.ts` - Refining the Data Structure**
 
-### 2.2. Solution: Centralized Initialization via Middleware
+-   **Objective:** To create a more explicit and reliable way to track the rate-limit status of each credential.
+-   **Action:**
+    -   In the `CredentialStatus` interface, we will modify the `rateLimit` property to be more structured. It will now include an `isRateLimited` boolean flag and an `expiresAt` timestamp.
 
-To resolve this, we will create a new middleware to centralize the initialization of the `AuthManager`.
+#### **3.2. `src/credential-manager.ts` - Smarter Credential Management**
 
--   A new middleware will be created in `src/middlewares/auth.ts` (or a new file).
--   This middleware will be responsible for creating a single instance of the `AuthManager` when the application starts.
--   The `AuthManager` will be instantiated with the correct environment and KV bindings.
--   The `AuthManager` instance will be attached to the application context (e.g., `c.set('authManager', authManager)`).
--   This middleware will be applied to all routes that require authentication.
+-   **Objective:** To give the `GeminiApiClient` a clear and efficient way to get a list of usable credentials.
+-   **Action:**
+    -   We will introduce a new public method, `getAvailableCredentials(model: string)`, which will return an array of all credentials that are not currently rate-limited for the specified model.
+    -   We will refactor the `markCredentialRateLimited` method to be more precise. It will now set the `isRateLimited` flag to `true` and use a `setTimeout` to reset it to `false` after the rate-limit period has expired.
 
-## 3. `AuthManager` Modifications
+#### **3.3. `src/auth.ts` - Streamlining the `AuthManager`**
 
-The existing `AuthManager` class will be refactored to work with the `CredentialManager`.
+-   **Objective:** To centralize all API call logic within the `GeminiApiClient` for better separation of concerns.
+-   **Action:**
+    -   The `callEndpoint` method will be completely removed from the `AuthManager`. Its responsibilities will be absorbed by the `GeminiApiClient`.
 
--   The `AuthManager` will no longer be instantiated in the route handlers. Instead, it will be accessed from the application context.
--   The `initializeAuth` method will be updated to work with the `CredentialManager` to get a credential and its corresponding token.
--   The token refresh logic in `refreshAndCacheToken` will be updated to handle the refreshing of tokens for each credential individually.
+#### **3.4. `src/gemini-client.ts` - The Core of the Solution**
 
-## 4. Rate Limiting
+-   **Objective:** To implement a robust, self-healing mechanism for handling API requests and rate limits.
+-   **Action:**
+    -   A new private method, `performRequest`, will be created to handle the logic of making a single API call.
+    -   The `streamContent` and `getCompletion` methods will be refactored to include a new retry loop. This loop will be the heart of the solution.
+    -   Inside the loop, the `credentialManager.getAvailableCredentials()` method will be called to get a fresh list of available credentials for each attempt.
+    -   The loop will then iterate through these credentials, using `performRequest` to make the API call.
+    -   If a 429 error is encountered, the `credentialManager.markCredentialRateLimited()` method will be called, and the loop will seamlessly move on to the next available credential.
+    -   If all credentials are exhausted, a clear and informative error will be thrown.
 
-### 4.1. Rate Limit Error Handling
+---
 
-The `callEndpoint` method in `src/auth.ts` will be updated to:
+### **4. Benefits of the New Approach**
 
--   Catch API errors that indicate a rate limit has been reached (e.g., a 429 status code).
--   When a rate limit error is detected, it will notify the `CredentialManager`, specifying the credential and the model that was being used.
+The new architecture will provide a seamless and professional user experience by eliminating the jarring 429 errors. The new implementation will be more resilient and easier to maintain, as the error handling and credential management logic will be centralized and more robust.
 
-### 4.2. Cyclical Credential Selection
+---
 
-The `CredentialManager` will implement a cyclical selection algorithm. When a credential is marked as rate-limited for a specific model, it will be skipped for that model until the rate limit period expires. The `CredentialManager` will then select the next available credential in the cycle.
+### **5. Visualizing the New Flow**
 
-## 5. KV Store Updates
+Here is a Mermaid diagram that illustrates the new, more robust flow of control:
 
-The current KV store implementation caches a single token. This will be updated to cache tokens for each credential.
+```mermaid
+sequenceDiagram
+    participant User
+    participant RouteHandler
+    participant GeminiApiClient
+    participant CredentialManager
+    participant GoogleAPI
 
--   The cache key will be made unique for each credential, for example, by using the `client_id` from the credential or a hash of the credential as part of the key. This will prevent token conflicts between different credentials.
-
-## 6. Proactive Error Handling & Validation
-
-To make the application more robust, we will add the following:
-
--   **KV Namespace Check:** The `AuthManager` will check if the KV namespace is available upon initialization and throw a clear, descriptive error if it's not.
--   **Credential Loading:** The `CredentialManager` will log a warning if no credentials are found in the environment variables.
--   **Improved Logging:** We will add more detailed logging to the authentication and credential management processes to make future debugging easier.
-
-## 7. Testing
-
-A comprehensive testing strategy will be developed to ensure the new system is working correctly. This will include:
-
--   Unit tests for the `CredentialManager` class.
--   Integration tests to verify the end-to-end authentication flow with multiple credentials.
--   Tests to simulate rate limit errors and verify that the credential cycling and rate limit removal mechanisms are working as expected.
--   Tests for the new middleware to ensure the `AuthManager` is correctly initialized and attached to the context.
-
-## 8. Implementation Steps
-
-The implementation will be carried out in the following steps:
-
-1.  **Create `auth` middleware:** Create a new middleware to initialize the `AuthManager` and attach it to the context.
-2.  **Update `src/index.ts`:** Apply the new middleware to the relevant routes.
-3.  **Refactor `src/routes/openai.ts`:** Modify the route handlers to use the `AuthManager` from the context.
-4.  **Update `src/types.ts`:** Modify the `Env` interface and add new interfaces for rate limit tracking.
-5.  **Create `CredentialManager`:** Implement the `CredentialManager` class with the logic for loading credentials, cyclical selection, and rate limit management.
-6.  **Refactor `AuthManager`:** Update the `AuthManager` to use the `CredentialManager`.
-7.  **Update `callEndpoint`:** Implement the rate limit error handling in `callEndpoint`.
-8.  **Update KV Store Logic:** Modify the KV store logic to support caching tokens for multiple credentials.
-9.  **Add Proactive Error Handling:** Implement the new error handling and validation checks.
-10. **Testing:** Write and run a comprehensive suite of tests.
-
-This updated plan provides a clear and robust roadmap for resolving the current issues and improving the overall stability of the application.
+    User->>+RouteHandler: /v1/chat/completions
+    RouteHandler->>+GeminiApiClient: streamContent()
+    GeminiApiClient->>+CredentialManager: getAvailableCredentials()
+    CredentialManager-->>-GeminiApiClient: [Credential1, Credential2]
+    GeminiApiClient->>+GoogleAPI: API Request with Credential1
+    GoogleAPI-->>-GeminiApiClient: 429 Rate Limit Error
+    GeminiApiClient->>+CredentialManager: markCredentialRateLimited(Credential1)
+    GeminiApiClient->>+GoogleAPI: API Request with Credential2
+    GoogleAPI-->>-GeminiApiClient: Success (200 OK)
+    GeminiApiClient-->>-RouteHandler: Stream Response
+    RouteHandler-->>-User: Stream Response

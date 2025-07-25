@@ -50,14 +50,9 @@ export class AuthManager {
 	}
 
 	/**
-	 * Initializes authentication using OAuth2 credentials with KV storage caching.
+	 * Initializes authentication using a specific credential.
 	 */
-	public async initializeAuth(model: string): Promise<void> {
-		const credentialStatus = this.credentialManager.getNextAvailableCredential(model);
-		if (!credentialStatus) {
-			throw new Error("No available credentials.");
-		}
-
+	public async initializeAuth(credentialStatus: CredentialStatus): Promise<void> {
 		const { id, credentials } = credentialStatus;
 
 		try {
@@ -214,47 +209,6 @@ export class AuthManager {
 		}
 	}
 
-	/**
-	 * A generic method to call a Code Assist API endpoint.
-	 */
-	public async callEndpoint(method: string, body: Record<string, unknown>, isRetry: boolean = false): Promise<unknown> {
-		const model = body.model as string;
-		await this.initializeAuth(model);
-
-		const response = await fetch(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${this.accessToken}`
-			},
-			body: JSON.stringify(body)
-		});
-
-		if (!response.ok) {
-			if (response.status === 429) {
-				const credentialStatus = this.credentialManager.getCurrentCredential();
-				if (credentialStatus) {
-					this.credentialManager.markCredentialRateLimited(credentialStatus.id, model, 3600); // 1 hour
-				}
-				return this.callEndpoint(method, body, true);
-			}
-
-			if (response.status === 401 && !isRetry) {
-				console.log("Got 401 error, clearing token cache and retrying...");
-				this.accessToken = null; // Clear cached token
-				const credentialStatus = this.credentialManager.getCurrentCredential();
-				if (credentialStatus) {
-					await this.clearTokenCache(credentialStatus.id); // Clear KV cache
-				}
-				await this.initializeAuth(model); // This will refresh the token
-				return this.callEndpoint(method, body, true); // Retry once
-			}
-			const errorText = await response.text();
-			throw new Error(`API call failed with status ${response.status}: ${errorText}`);
-		}
-
-		return response.json();
-	}
 
 	/**
 	 * Get the current access token.
