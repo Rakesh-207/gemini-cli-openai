@@ -525,9 +525,30 @@ export class GeminiApiClient {
 
 					if (response.status === 401 || response.status === 403) {
 						console.log(`Auth error ${response.status}. Refreshing token and retrying.`);
-						await this.authManager.refreshCredential(credential.id, credential.credentials.refresh_token);
-						// Retry immediately with the new token
-						continue;
+						let authRetries = 3;
+						let refreshSuccess = false;
+						while (authRetries > 0) {
+							try {
+								await this.authManager.refreshCredential(credential.id, credential.credentials.refresh_token);
+								refreshSuccess = true;
+								break;
+							} catch (e) {
+								console.error(`Token refresh failed for credential ${credential.id}. Retries left: ${authRetries - 1}`);
+								authRetries--;
+								if (authRetries > 0) {
+									await new Promise(resolve => setTimeout(resolve, Math.pow(2, 3 - authRetries) * 1000));
+								}
+							}
+						}
+
+						if (refreshSuccess) {
+							// Retry the original request with the new token
+							continue;
+						} else {
+							console.error(`Token refresh failed for credential ${credential.id} after multiple retries.`);
+							this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600);
+							break; // Move to the next credential
+						}
 					}
 
 					if (!response.ok) {
@@ -538,7 +559,9 @@ export class GeminiApiClient {
 					return response;
 				} catch (error) {
 					console.error(`Error with credential ${credential.id}:`, error);
-					break; // Move to the next credential on error
+					// On any other error, we also break and move to the next credential.
+					// This prevents getting stuck on a broken credential.
+					break; 
 				}
 			}
 		}
