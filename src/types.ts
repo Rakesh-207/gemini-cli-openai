@@ -32,6 +32,7 @@ export interface RateLimitInfo {
 
 export interface CredentialStatus {
 	id: string; // A unique identifier, e.g., client_id
+	projectId: string;
 	credentials: OAuth2Credentials;
 	rateLimit: {
 		[model: string]: RateLimitInfo;

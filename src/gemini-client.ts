@@ -88,7 +88,6 @@ export class GeminiApiClient {
 	private env: Env;
 	private authManager: AuthManager;
 	private credentialManager: CredentialManager;
-	private projectId: string | null = null;
 	private autoSwitchHelper: AutoModelSwitchingHelper;
 
 	constructor(env: Env, authManager: AuthManager, credentialManager: CredentialManager) {
@@ -96,33 +95,6 @@ export class GeminiApiClient {
 		this.authManager = authManager;
 		this.credentialManager = credentialManager;
 		this.autoSwitchHelper = new AutoModelSwitchingHelper(env);
-	}
-
-	/**
-	 * Discovers the Google Cloud project ID. Uses the environment variable if provided.
-	 */
-	public async discoverProjectId(): Promise<string> {
-		if (this.env.GEMINI_PROJECT_ID) {
-			return this.env.GEMINI_PROJECT_ID;
-		}
-		if (this.projectId) {
-			return this.projectId;
-		}
-
-		const initialProjectId = "default-project";
-		const body = {
-			cloudaicompanionProject: initialProjectId,
-			metadata: { duetProject: initialProjectId },
-		};
-
-		const response = await this.performRequest("loadCodeAssist", body);
-		const loadResponse = (await response.json()) as ProjectDiscoveryResponse;
-
-		if (loadResponse.cloudaicompanionProject) {
-			this.projectId = loadResponse.cloudaicompanionProject;
-			return loadResponse.cloudaicompanionProject;
-		}
-		throw new Error("Project ID discovery failed. Please set the GEMINI_PROJECT_ID environment variable.");
 	}
 
 	/**
@@ -312,8 +284,6 @@ export class GeminiApiClient {
 			};
 		}
 	): AsyncGenerator<StreamChunk> {
-		const projectId = await this.discoverProjectId();
-
 		const contents = messages.map((msg) => this.messageToGeminiFormat(msg));
 
 		if (systemPrompt) {
@@ -361,7 +331,6 @@ export class GeminiApiClient {
 
 		const streamRequest = {
 			model: modelId,
-			project: projectId,
 			request: {
 				contents: contents,
 				generationConfig,
@@ -497,6 +466,11 @@ export class GeminiApiClient {
 					const url = isStream
 						? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}?alt=sse`
 						: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`;
+					
+					const requestBody = {
+						...body,
+						project: credential.projectId,
+					};
 
 					const response = await fetch(url, {
 						method: "POST",
@@ -504,7 +478,7 @@ export class GeminiApiClient {
 							"Content-Type": "application/json",
 							Authorization: `Bearer ${this.authManager.getAccessToken()}`,
 						},
-						body: JSON.stringify(body),
+						body: JSON.stringify(requestBody),
 					});
 
 					if (response.status === 429) {

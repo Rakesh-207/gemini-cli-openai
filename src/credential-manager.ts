@@ -10,11 +10,12 @@ export class CredentialManager {
             if (key.startsWith('GCP_SERVICE_ACCOUNT_')) {
                 try {
                     const creds = JSON.parse(env[key]);
-                    this.credentials.push({
-                        id: creds.project_id,
-                        credentials: creds,
-                        rateLimit: {},
-                    });
+this.credentials.push({
+    id: creds.project_id,
+    projectId: creds.project_id,
+    credentials: creds,
+    rateLimit: {},
+});
                 } catch (error) {
                     console.error(`Failed to parse credentials for ${key}:`, error);
                 }

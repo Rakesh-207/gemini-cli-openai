@@ -6,13 +6,10 @@ This document has been updated to address a flaw in the initial implementation. 
 
 1.  **Update `performRequest` in `src/gemini-client.ts`:** Modify the handling of 401/403 errors to include a retry limit and exponential backoff, as detailed in the updated "Automatic Credential Refresh" section (3.6).
 2.  **Verify the new logic:** Ensure that credentials that repeatedly fail to refresh are correctly marked as rate-limited to prevent them from being used again.
+
 ---
 
 This document outlines the plan to refactor the application to intelligently handle API rate limits and authentication failures, ensuring a seamless experience for the end user. We will achieve this by creating a robust retry mechanism that automatically cycles through available credentials when a rate limit or authentication error is encountered.
-
----
-
-This document outlines the plan to refactor the application to intelligently handle API rate limits, ensuring a seamless experience for the end user. We will achieve this by creating a robust retry mechanism that automatically cycles through available credentials when a rate limit is encountered.
 
 ---
 
@@ -37,6 +34,7 @@ To address this, we will implement a more robust and resilient architecture for 
 -   **Objective:** To create a more explicit and reliable way to track the rate-limit status of each credential.
 -   **Action:**
     -   In the `CredentialStatus` interface, we will modify the `rateLimit` property to be more structured. It will now include an `isRateLimited` boolean flag and an `expiresAt` timestamp.
+    -   We will also add a `projectId` field to the `CredentialStatus` interface to store the project ID for each credential.
 
 #### **3.2. `src/credential-manager.ts` - Smarter Credential Management**
 
@@ -44,6 +42,7 @@ To address this, we will implement a more robust and resilient architecture for 
 -   **Action:**
     -   We will introduce a new public method, `getAvailableCredentials(model: string)`, which will return an array of all credentials that are not currently rate-limited for the specified model.
     -   We will refactor the `markCredentialRateLimited` method to be more precise. It will now set the `isRateLimited` flag to `true` and use the `expiresAt` timestamp to determine when the credential should be used again.
+    -   The constructor will be updated to populate the new `projectId` field from the `GCP_SERVICE_ACCOUNT_` environment variables.
 
 #### **3.3. `src/auth.ts` - Streamlining the `AuthManager`**
 
@@ -57,6 +56,7 @@ To address this, we will implement a more robust and resilient architecture for 
 -   **Action:**
     -   The `performRequest` method will be updated to include intelligent error handling.
     -   The `streamContent` and `getCompletion` methods will use this new `performRequest` method.
+    -   The `discoverProjectId` method will be removed, as the project ID will now be retrieved from the credential.
 
 #### **3.5. Intelligent Error Handling**
 
@@ -76,6 +76,12 @@ To address this, we will implement a more robust and resilient architecture for 
         -   Attempt to refresh the token using the `refreshCredential` method up to three times with an exponential backoff.
         -   If the refresh is successful, it will retry the original request with the new token.
         -   If the refresh fails after three attempts, the credential will be marked as rate-limited for one hour, and the system will move on to the next available credential.
+
+#### **3.7. Dynamic Project ID**
+
+-   **Objective:** To use the `projectId` from the credential for each API request.
+-   **Action:**
+    -   The `performRequest` method in `src/gemini-client.ts` will be updated to use the `projectId` from the `CredentialStatus` object for each API call.
 
 ---
 
@@ -103,7 +109,7 @@ sequenceDiagram
     GeminiApiClient->>+CredentialManager: getAvailableCredentials()
     CredentialManager-->>-GeminiApiClient: [Credential1, Credential2]
     
-    GeminiApiClient->>+GoogleAPI: API Request with Credential1
+    GeminiApiClient->>+GoogleAPI: API Request with Credential1 and ProjectId1
     GoogleAPI-->>-GeminiApiClient: 401 Unauthorized
 
     loop 3 Times with Exponential Backoff
@@ -112,7 +118,7 @@ sequenceDiagram
     end
 
     GeminiApiClient->>+CredentialManager: markCredentialRateLimited(Credential1)
-    GeminiApiClient->>+GoogleAPI: API Request with Credential2
+    GeminiApiClient->>+GoogleAPI: API Request with Credential2 and ProjectId2
     GoogleAPI-->>-GeminiApiClient: Success (200 OK)
     GeminiApiClient-->>-RouteHandler: Stream Response
     RouteHandler-->>-User: Stream Response
