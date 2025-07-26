@@ -83,12 +83,9 @@ export class AuthManager {
 			// Check if the original token is still valid
 			const timeUntilExpiry = credentials.expiry_date - Date.now();
 			if (timeUntilExpiry > TOKEN_BUFFER_TIME) {
-				// Original token is still valid, cache it and use it
+				// Original token is still valid, use it without caching
 				this.accessToken = credentials.access_token;
 				console.log(`Original token is valid for ${Math.floor(timeUntilExpiry / 1000)} more seconds`);
-
-				// Cache the token in KV storage
-				await this.cacheTokenInKV(id, credentials.access_token, credentials.expiry_date);
 				return;
 			}
 

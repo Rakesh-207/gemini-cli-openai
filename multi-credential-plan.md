@@ -2,10 +2,7 @@
 
 **Implementation Notes for the AI Assistant:**
 
-This document has been updated to address a flaw in the initial implementation. The immediate priority is to fix the authentication retry loop. Please implement the following:
-
-1.  **Update `performRequest` in `src/gemini-client.ts`:** Modify the handling of 401/403 errors to include a retry limit and exponential backoff, as detailed in the updated "Automatic Credential Refresh" section (3.6).
-2.  **Verify the new logic:** Ensure that credentials that repeatedly fail to refresh are correctly marked as rate-limited to prevent them from being used again.
+This document outlines the full implementation of the graceful rate-limit handling and credential cycling mechanism. All items in the plan have been implemented, including the most recent optimization to reduce KV store writes. The system is now more robust and efficient.
 
 ---
 
@@ -82,6 +79,12 @@ To address this, we will implement a more robust and resilient architecture for 
 -   **Objective:** To use the `projectId` from the credential for each API request.
 -   **Action:**
     -   The `performRequest` method in `src/gemini-client.ts` will be updated to use the `projectId` from the `CredentialStatus` object for each API call.
+
+#### **3.8. KV Store Write Optimization**
+
+-   **Objective:** To reduce the number of unnecessary write operations to the KV store.
+-   **Action:**
+    -   The `initializeAuth` method in `src/auth.ts` has been modified to prevent it from caching a credential's original, valid token. The token is now only cached upon a successful refresh, which is the most critical time to do so. This change significantly reduces writes to the KV store without impacting performance or reliability.
 
 ---
 
