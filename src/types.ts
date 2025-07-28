@@ -37,6 +37,7 @@ export interface CredentialStatus {
 	rateLimit: {
 		[model: string]: RateLimitInfo;
 	};
+	status: 'VALID' | 'EXPIRED' | 'RATE_LIMITED';
 }
 
 // --- OAuth2 Credentials Interface ---

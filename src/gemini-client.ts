@@ -447,102 +447,105 @@ export class GeminiApiClient {
 	/**
 	 * Performs the actual stream request with retry logic for 401 errors and auto model switching for rate limits.
 	 */
-	private async performRequest(
-		method: string,
-		body: Record<string, unknown>,
-		isStream: boolean = false
-	): Promise<Response> {
-		const availableCredentials = this.credentialManager.getAvailableCredentials(body.model as string);
+private async performRequest(
+    method: string,
+    body: Record<string, unknown>,
+    isStream: boolean = false
+): Promise<Response> {
+    const availableCredentials = this.credentialManager.getAvailableCredentials(body.model as string);
 
-		if (availableCredentials.length === 0) {
-			throw new Error("All credentials are currently rate-limited.");
-		}
+    if (availableCredentials.length === 0) {
+        throw new Error("All credentials are currently rate-limited or expired.");
+    }
 
-		for (const credential of availableCredentials) {
-			let retries = 3;
-			while (retries > 0) {
-				try {
-            await this.authManager.initializeAuth(credential);
-            console.log(`Using model: ${body.model as string}, Project ID: ${credential.projectId}`);
-					const url = isStream
-						? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}?alt=sse`
-						: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`;
-					
-					const requestBody = {
-						...body,
-						project: credential.projectId,
-					};
+    for (const credential of availableCredentials) {
+        if (credential.status !== 'VALID') {
+            continue;
+        }
+        let retries = 3;
+        while (retries > 0) {
+            try {
+        await this.authManager.initializeAuth(credential);
+        console.log(`Using model: ${body.model as string}, Project ID: ${credential.projectId}`);
+                const url = isStream
+                    ? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}?alt=sse`
+                    : `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`;
+                
+                const requestBody = {
+                    ...body,
+                    project: credential.projectId,
+                };
 
-					const response = await fetch(url, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${this.authManager.getAccessToken()}`,
-						},
-						body: JSON.stringify(requestBody),
-					});
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${this.authManager.getAccessToken()}`,
+                    },
+                    body: JSON.stringify(requestBody),
+                });
 
-					if (response.status === 429) {
-						console.log(`Credential ${credential.id} rate-limited. Trying next credential.`);
-						this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600); // 1 hour
-						break; // Move to the next credential
-					}
+                if (response.status === 429) {
+                    console.log(`Credential ${credential.id} rate-limited. Trying next credential.`);
+                    this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600); // 1 hour
+                    break; // Move to the next credential
+                }
 
-					if (response.status >= 500) {
-						console.log(`Server error ${response.status}. Retrying with backoff.`);
-						await new Promise(resolve => setTimeout(resolve, Math.pow(2, 3 - retries) * 1000));
-						retries--;
-						if (retries === 0) {
-							this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600); // 1 hour
-						}
-						continue;
-					}
+                if (response.status >= 500) {
+                    console.log(`Server error ${response.status}. Retrying with backoff.`);
+                    await new Promise(resolve => setTimeout(resolve, Math.pow(2, 3 - retries) * 1000));
+                    retries--;
+                    if (retries === 0) {
+                        this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600); // 1 hour
+                    }
+                    continue;
+                }
 
-					if (response.status === 401 || response.status === 403) {
-						console.log(`Auth error ${response.status}. Refreshing token and retrying.`);
-						let authRetries = 3;
-						let refreshSuccess = false;
-						while (authRetries > 0) {
-							try {
-								await this.authManager.refreshCredential(credential.id, credential.credentials.refresh_token);
-								refreshSuccess = true;
-								break;
-							} catch (e) {
-								console.error(`Token refresh failed for credential ${credential.id}. Retries left: ${authRetries - 1}`);
-								authRetries--;
-								if (authRetries > 0) {
-									await new Promise(resolve => setTimeout(resolve, Math.pow(2, 3 - authRetries) * 1000));
-								}
-							}
-						}
+                if (response.status === 401 || response.status === 403) {
+                    console.log(`Auth error ${response.status}. Refreshing token and retrying.`);
+                    let authRetries = 3;
+                    let refreshSuccess = false;
+                    while (authRetries > 0) {
+                        try {
+                            await this.authManager.refreshCredential(credential.id, credential.credentials.refresh_token);
+                            refreshSuccess = true;
+                            break;
+                        } catch (e) {
+                            console.error(`Token refresh failed for credential ${credential.id}. Retries left: ${authRetries - 1}`);
+                            authRetries--;
+                            if (authRetries > 0) {
+                                await new Promise(resolve => setTimeout(resolve, Math.pow(2, 3 - authRetries) * 1000));
+                            }
+                        }
+                    }
 
-						if (refreshSuccess) {
-							// Retry the original request with the new token
-							continue;
-						} else {
-							console.error(`Token refresh failed for credential ${credential.id} after multiple retries.`);
-							this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600);
-							break; // Move to the next credential
-						}
-					}
+                    if (refreshSuccess) {
+                        // Retry the original request with the new token
+                        continue;
+                    } else {
+                        console.error(`Token refresh failed for credential ${credential.id} after multiple retries.`);
+                        this.credentialManager.markCredentialRateLimited(credential.id, body.model as string, 3600);
+                        break; // Move to the next credential
+                    }
+                }
 
-					if (!response.ok) {
-						const errorText = await response.text();
-						throw new Error(`API call failed with status ${response.status}: ${errorText}`);
-					}
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API call failed with status ${response.status}: ${errorText}`);
+                }
 
-					return response;
-				} catch (error) {
-					console.error(`Error with credential ${credential.id}:`, error);
-					// On any other error, we also break and move to the next credential.
-					// This prevents getting stuck on a broken credential.
-					break; 
-				}
-			}
-		}
+                return response;
+            } catch (error) {
+                console.error(`Error with credential ${credential.id}:`, error);
+                // On any other error, we also break and move to the next credential.
+                // This prevents getting stuck on a broken credential.
+                break; 
+            }
+        }
+    }
 
-		throw new Error("All available credentials failed.");
-	}
+    throw new Error("All available credentials failed.");
+}
 
 	private async *performStreamRequest(
 		streamRequest: unknown,

@@ -118,11 +118,15 @@ export class AuthManager {
 			})
 		});
 
-		if (!refreshResponse.ok) {
-			const errorText = await refreshResponse.text();
-			console.error("Token refresh failed:", errorText);
-			throw new Error(`Token refresh failed: ${errorText}`);
-		}
+if (!refreshResponse.ok) {
+    const errorText = await refreshResponse.text();
+    console.error("Token refresh failed:", errorText);
+    const credential = this.credentialManager.getCredentialCycle().find(c => c.id === credentialId);
+    if (credential) {
+        credential.status = 'EXPIRED';
+    }
+    throw new Error(`Token refresh failed: ${errorText}`);
+}
 
 		const refreshData = (await refreshResponse.json()) as TokenRefreshResponse;
 		this.accessToken = refreshData.access_token;
@@ -140,31 +144,33 @@ export class AuthManager {
 	/**
 	 * Cache the access token in KV storage.
 	 */
-	private async cacheTokenInKV(credentialId: string, accessToken: string, expiryDate: number): Promise<void> {
-		try {
-			const tokenData = {
-				access_token: accessToken,
-				expiry_date: expiryDate,
-				cached_at: Date.now()
-			};
+private async cacheTokenInKV(credentialId: string, accessToken: string, expiryDate: number): Promise<void> {
+    try {
+        const credential = this.credentialManager.getCredentialCycle().find(c => c.id === credentialId);
+        const tokenData = {
+            access_token: accessToken,
+            expiry_date: expiryDate,
+            cached_at: Date.now(),
+            status: credential ? credential.status : 'VALID'
+        };
 
-			const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
-			// Cache for slightly less than the token expiry to be safe
-			const ttlSeconds = Math.floor((expiryDate - Date.now()) / 1000) - 300; // 5 minutes buffer
+        const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
+        // Cache for slightly less than the token expiry to be safe
+        const ttlSeconds = Math.floor((expiryDate - Date.now()) / 1000) - 300; // 5 minutes buffer
 
-			if (ttlSeconds > 0) {
-				await this.env.GEMINI_CLI_KV2.put(cacheKey, JSON.stringify(tokenData), {
-					expirationTtl: ttlSeconds
-				});
-				console.log(`Token cached in KV storage with TTL of ${ttlSeconds} seconds`);
-			} else {
-				console.log("Token expires too soon, not caching in KV");
-			}
-		} catch (kvError) {
-			console.error("Failed to cache token in KV storage:", kvError);
-			// Don't throw an error here as the token is still valid, just not cached
-		}
-	}
+        if (ttlSeconds > 0) {
+            await this.env.GEMINI_CLI_KV2.put(cacheKey, JSON.stringify(tokenData), {
+                expirationTtl: ttlSeconds
+            });
+            console.log(`Token cached in KV storage with TTL of ${ttlSeconds} seconds`);
+        } else {
+            console.log("Token expires too soon, not caching in KV");
+        }
+    } catch (kvError) {
+        console.error("Failed to cache token in KV storage:", kvError);
+        // Don't throw an error here as the token is still valid, just not cached
+    }
+}
 
 	/**
 	 * Clear cached token from KV storage.
@@ -182,29 +188,33 @@ export class AuthManager {
 	/**
 	 * Get cached token info from KV storage.
 	 */
-	public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo> {
-		try {
-			const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
-			const cachedToken = await this.env.GEMINI_CLI_KV2.get(cacheKey, "json");
-			if (cachedToken) {
-				const tokenData = cachedToken as CachedTokenData;
-				const timeUntilExpiry = tokenData.expiry_date - Date.now();
+public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo> {
+    try {
+        const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
+        const cachedToken = await this.env.GEMINI_CLI_KV2.get(cacheKey, "json");
+        if (cachedToken) {
+            const tokenData = cachedToken as CachedTokenData & { status?: 'VALID' | 'EXPIRED' | 'RATE_LIMITED' };
+            const timeUntilExpiry = tokenData.expiry_date - Date.now();
+            const credential = this.credentialManager.getCredentialCycle().find(c => c.id === credentialId);
+            if (credential && tokenData.status) {
+                credential.status = tokenData.status;
+            }
 
-				return {
-					cached: true,
-					cached_at: new Date(tokenData.cached_at).toISOString(),
-					expires_at: new Date(tokenData.expiry_date).toISOString(),
-					time_until_expiry_seconds: Math.floor(timeUntilExpiry / 1000),
-					is_expired: timeUntilExpiry < 0
-					// Removed token_preview for security
-				};
-			}
-			return { cached: false, message: "No token found in cache" };
-		} catch (e: unknown) {
-			const errorMessage = e instanceof Error ? e.message : String(e);
-			return { cached: false, error: errorMessage };
-		}
-	}
+            return {
+                cached: true,
+                cached_at: new Date(tokenData.cached_at).toISOString(),
+                expires_at: new Date(tokenData.expiry_date).toISOString(),
+                time_until_expiry_seconds: Math.floor(timeUntilExpiry / 1000),
+                is_expired: timeUntilExpiry < 0
+                // Removed token_preview for security
+            };
+        }
+        return { cached: false, message: "No token found in cache" };
+    } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        return { cached: false, error: errorMessage };
+    }
+}
 
 
 	/**
