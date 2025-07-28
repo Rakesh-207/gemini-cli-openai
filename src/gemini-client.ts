@@ -462,7 +462,8 @@ export class GeminiApiClient {
 			let retries = 3;
 			while (retries > 0) {
 				try {
-					await this.authManager.initializeAuth(credential);
+            await this.authManager.initializeAuth(credential);
+            console.log(`Using model: ${body.model as string}, Project ID: ${credential.projectId}`);
 					const url = isStream
 						? `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}?alt=sse`
 						: `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`;
