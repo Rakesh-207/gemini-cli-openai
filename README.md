@@ -161,7 +161,6 @@ npm run dev
 | `ENABLE_FAKE_THINKING` | ❌ | Enable synthetic thinking output for thinking models (set to "true" to enable) |
 | `ENABLE_REAL_THINKING` | ❌ | Enable real Gemini thinking output (set to "true" to enable) |
 | `STREAM_THINKING_AS_CONTENT` | ❌ | Stream thinking as content with `<thinking>` tags (DeepSeek R1 style) |
-| `ENABLE_AUTO_MODEL_SWITCHING` | ❌ | Enable automatic fallback from pro to flash models on rate limits (set to "true" to enable) |
 | `GEMINI_MODERATION_HARASSMENT_THRESHOLD` | ❌ | Sets the moderation threshold for harassment content (e.g., `BLOCK_NONE`, `BLOCK_FEW`, `BLOCK_SOME`, `BLOCK_ONLY_HIGH`, `HARM_BLOCK_THRESHOLD_UNSPECIFIED`) |
 | `GEMINI_MODERATION_HATE_SPEECH_THRESHOLD` | ❌ | Sets the moderation threshold for hate speech content (e.g., `BLOCK_NONE`, `BLOCK_FEW`, `BLOCK_SOME`, `BLOCK_ONLY_HIGH`, `HARM_BLOCK_THRESHOLD_UNSPECIFIED`) |
 | `GEMINI_MODERATION_SEXUALLY_EXPLICIT_THRESHOLD` | ❌ | Sets the moderation threshold for sexually explicit content (e.g., `BLOCK_NONE`, `BLOCK_FEW`, `BLOCK_SOME`, `BLOCK_ONLY_HIGH`, `HARM_BLOCK_THRESHOLD_UNSPECIFIED`) |
@@ -183,12 +182,6 @@ npm run dev
 - **Optimized UX**: The `</thinking>` tag is only sent when the actual LLM response begins, eliminating awkward pauses between thinking and response
 - If neither thinking mode is enabled, thinking models will behave like regular models
 
-**Auto Model Switching:**
-- When `ENABLE_AUTO_MODEL_SWITCHING` is set to "true", the system will automatically fall back from `gemini-2.5-pro` to `gemini-2.5-flash` when encountering rate limit errors (HTTP 429 or 503)
-- This provides seamless continuity when the Pro model quota is exhausted
-- The fallback is indicated in the response with a notification message
-- Only applies to supported model pairs (currently: pro → flash)
-- Works for both streaming and non-streaming requests
 
 ### KV Namespaces
 

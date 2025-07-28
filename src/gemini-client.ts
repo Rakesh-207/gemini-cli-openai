@@ -751,21 +751,6 @@ export class GeminiApiClient {
 				tool_calls: tool_calls.length > 0 ? tool_calls : undefined
 			};
 		} catch (error: unknown) {
-			// Handle rate limiting for non-streaming requests
-			if (this.autoSwitchHelper.isRateLimitError(error)) {
-				const fallbackResult = await this.autoSwitchHelper.handleNonStreamingFallback(
-					modelId,
-					systemPrompt,
-					messages,
-					options,
-					this.streamContent.bind(this)
-				);
-				if (fallbackResult) {
-					return fallbackResult;
-				}
-			}
-
-			// Re-throw if not a rate limit error or fallback not available
 			throw error;
 		}
 	}
