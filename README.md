@@ -16,9 +16,31 @@ Transform Google's Gemini models into OpenAI-compatible endpoints using Cloudfla
 - 🌐 **Third-party Integration** - Compatible with Open WebUI, ChatGPT clients, and more
 - ⚡ **Cloudflare Workers** - Global edge deployment with low latency
 - 🔄 **Smart Token Caching** - Intelligent token management with KV storage
+-  credential-management **Credential Management** - Smart credential management with status tracking
 - 🆓 **Free Tier Access** - Leverage Google's free tier through Code Assist API
 - 📡 **Real-time Streaming** - Server-sent events for live responses with token usage
 - 🎭 **Multiple Models** - Access to latest Gemini models including experimental ones
+
+## 🤖 Credential Management
+
+The worker now includes a smart credential management system that tracks the status of each credential. This system helps to improve the application's performance by ensuring that only valid, non-expired, and non-rate-limited credentials are used for API requests.
+
+### Credential Status
+
+The following credential statuses are used:
+
+-   **`VALID`**: The credential is valid and can be used for API requests.
+-   **`EXPIRED`**: The credential has expired and needs to be refreshed.
+-   **`RATE_LIMITED`**: The credential has been rate-limited and cannot be used for a certain period of time.
+
+### How It Works
+
+1.  **Credential Initialization**: When the application starts, it initializes all the credentials and sets their status to `VALID`.
+2.  **Credential Selection**: When making an API request, the application gets a list of available credentials from the `CredentialManager`. The `CredentialManager` filters out the expired and rate-limited credentials, and returns a list of valid credentials.
+3.  **Token Refresh**: If a credential's token is expired, the application will try to refresh it. If the refresh is successful, the credential's status will be set to `VALID`. If the refresh fails, the credential's status will be set to `EXPIRED`.
+4.  **Rate Limiting**: If a credential gets rate-limited, the application will mark it as `RATE_LIMITED` and will not use it for a certain period of time.
+
+This new system ensures that the application is always using the best available credential, which significantly improves its performance and reliability.
 
 ## 🤖 Supported Models
 
@@ -202,6 +224,9 @@ npm run dev
 - Credentials might be from wrong OAuth2 client
 - Refresh token might be expired or revoked
 - Check the debug cache endpoint for token status
+
+**Frequent Credential Refreshes**
+- If you're seeing a lot of credential refresh requests in the logs, it might be because the application is trying to refresh expired or rate-limited credentials. The new credential management system should prevent this from happening, but if you're still seeing this issue, you can check the status of your credentials in the KV store.
 
 **Project ID Discovery Failed**
 - Set `GEMINI_PROJECT_ID` environment variable manually

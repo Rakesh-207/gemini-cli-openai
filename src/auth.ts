@@ -52,52 +52,37 @@ export class AuthManager {
 	/**
 	 * Initializes authentication using a specific credential.
 	 */
-	public async initializeAuth(credentialStatus: CredentialStatus): Promise<void> {
-		const { id, credentials } = credentialStatus;
+public async initializeAuth(credentialStatus: CredentialStatus): Promise<void> {
+    const { id, credentials } = credentialStatus;
 
-		try {
-			// First, try to get a cached token from KV storage
-			let cachedTokenData = null;
+    try {
+        // Try to get a cached token from KV storage
+        const cachedTokenInfo = await this.getCachedTokenInfo(id);
+        if (cachedTokenInfo.cached && cachedTokenInfo.access_token) {
+            const timeUntilExpiry = new Date(cachedTokenInfo.expires_at!).getTime() - Date.now();
+            if (timeUntilExpiry > TOKEN_BUFFER_TIME) {
+                this.accessToken = cachedTokenInfo.access_token;
+                console.log(`Using cached token, valid for ${Math.floor(timeUntilExpiry / 1000)} more seconds`);
+                return;
+            }
+            console.log("Cached token expired or expiring soon");
+        }
 
-			try {
-				const cachedToken = await this.getCachedTokenInfo(id);
-				if (cachedToken) {
-					cachedTokenData = cachedToken as unknown as CachedTokenData;
-					console.log("Found cached token in KV storage");
-				}
-			} catch (kvError) {
-				console.log("No cached token found in KV storage or KV error:", kvError);
-			}
-
-			// Check if cached token is still valid (with buffer)
-			if (cachedTokenData) {
-				const timeUntilExpiry = cachedTokenData.expiry_date - Date.now();
-				if (timeUntilExpiry > TOKEN_BUFFER_TIME) {
-					this.accessToken = cachedTokenData.access_token;
-					console.log(`Using cached token, valid for ${Math.floor(timeUntilExpiry / 1000)} more seconds`);
-					return;
-				}
-				console.log("Cached token expired or expiring soon");
-			}
-
-			// Check if the original token is still valid
-			const timeUntilExpiry = credentials.expiry_date - Date.now();
-			if (timeUntilExpiry > TOKEN_BUFFER_TIME) {
-				// Original token is still valid, use it without caching
-				this.accessToken = credentials.access_token;
-				console.log(`Original token is valid for ${Math.floor(timeUntilExpiry / 1000)} more seconds`);
-				return;
-			}
-
-			// Both original and cached tokens are expired, refresh the token
-			console.log("All tokens expired, refreshing...");
-			await this.refreshCredential(id, credentials.refresh_token);
-		} catch (e: unknown) {
-			const errorMessage = e instanceof Error ? e.message : String(e);
-			console.error("Failed to initialize authentication:", e);
-			throw new Error("Authentication failed: " + errorMessage);
-		}
-	}
+        // If no valid cached token, refresh the token
+        console.log("No valid cached token found, refreshing...");
+        await this.refreshCredential(id, credentials.refresh_token);
+    } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`Failed to initialize authentication for credential ${id}:`, e);
+        // We don't re-throw the error here, allowing the client to try the next credential.
+        // Instead, we'll mark the credential as expired.
+        const credential = this.credentialManager.getCredentialCycle().find(c => c.id === id);
+        if (credential) {
+            credential.status = 'EXPIRED';
+        }
+        throw new Error(`Authentication failed for credential ${id}: ${errorMessage}`);
+    }
+}
 
 	/**
 	 * Refresh the OAuth token and cache it in KV storage.
@@ -188,7 +173,7 @@ private async cacheTokenInKV(credentialId: string, accessToken: string, expiryDa
 	/**
 	 * Get cached token info from KV storage.
 	 */
-public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo> {
+public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo & { access_token?: string }> {
     try {
         const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
         const cachedToken = await this.env.GEMINI_CLI_KV2.get(cacheKey, "json");
@@ -205,8 +190,8 @@ public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo> {
                 cached_at: new Date(tokenData.cached_at).toISOString(),
                 expires_at: new Date(tokenData.expiry_date).toISOString(),
                 time_until_expiry_seconds: Math.floor(timeUntilExpiry / 1000),
-                is_expired: timeUntilExpiry < 0
-                // Removed token_preview for security
+                is_expired: timeUntilExpiry < 0,
+                access_token: tokenData.access_token,
             };
         }
         return { cached: false, message: "No token found in cache" };
