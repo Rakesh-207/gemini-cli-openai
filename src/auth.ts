@@ -79,6 +79,7 @@ public async initializeAuth(credentialStatus: CredentialStatus): Promise<void> {
         const credential = this.credentialManager.getCredentialCycle().find(c => c.id === id);
         if (credential) {
             credential.status = 'EXPIRED';
+            credential.cachedStatus = 'EXPIRED';
         }
         throw new Error(`Authentication failed for credential ${id}: ${errorMessage}`);
     }
@@ -139,6 +140,10 @@ private async cacheTokenInKV(credentialId: string, accessToken: string, expiryDa
             status: credential ? credential.status : 'VALID'
         };
 
+        if (credential) {
+            credential.cachedStatus = credential.status;
+        }
+
         const cacheKey = `${KV_TOKEN_KEY}_${credentialId}`;
         // Cache for slightly less than the token expiry to be safe
         const ttlSeconds = Math.floor((expiryDate - Date.now()) / 1000) - 300; // 5 minutes buffer
@@ -183,6 +188,7 @@ public async getCachedTokenInfo(credentialId: string): Promise<TokenCacheInfo & 
             const credential = this.credentialManager.getCredentialCycle().find(c => c.id === credentialId);
             if (credential && tokenData.status) {
                 credential.status = tokenData.status;
+                credential.cachedStatus = tokenData.status;
             }
 
             return {

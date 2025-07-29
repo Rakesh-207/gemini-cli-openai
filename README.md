@@ -25,6 +25,10 @@ Transform Google's Gemini models into OpenAI-compatible endpoints using Cloudfla
 
 The worker now includes a smart credential management system that tracks the status of each credential. This system helps to improve the application's performance by ensuring that only valid, non-expired, and non-rate-limited credentials are used for API requests.
 
+### In-Memory Caching
+
+To optimize performance, the application now uses an in-memory cache to store the status of each credential. This avoids the need to fetch the status from the KV store on every request, which significantly reduces the CPU time.
+
 ### Credential Status
 
 The following credential statuses are used:
@@ -39,6 +43,7 @@ The following credential statuses are used:
 2.  **Credential Selection**: When making an API request, the application gets a list of available credentials from the `CredentialManager`. The `CredentialManager` filters out the expired and rate-limited credentials, and returns a list of valid credentials.
 3.  **Token Refresh**: If a credential's token is expired, the application will try to refresh it. If the refresh is successful, the credential's status will be set to `VALID`. If the refresh fails, the credential's status will be set to `EXPIRED`.
 4.  **Rate Limiting**: If a credential gets rate-limited, the application will mark it as `RATE_LIMITED` and will not use it for a certain period of time.
+5.  **Proactive Credential Refresh**: The application now includes a background process that proactively refreshes the credentials before they expire. This ensures that there is always a valid credential available for API requests.
 
 This new system ensures that the application is always using the best available credential, which significantly improves its performance and reliability.
 

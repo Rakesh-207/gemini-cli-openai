@@ -29,7 +29,7 @@ this.credentials.push({
 
 public getAvailableCredentials(model: string): CredentialStatus[] {
     return this.credentials.filter(cred => {
-        if (cred.status === 'EXPIRED') {
+        if (cred.cachedStatus === 'EXPIRED' || cred.status === 'EXPIRED') {
             return false;
         }
         const rateLimitInfo = cred.rateLimit[model];
@@ -42,6 +42,7 @@ public getAvailableCredentials(model: string): CredentialStatus[] {
             rateLimitInfo.isRateLimited = false;
             rateLimitInfo.expiresAt = null;
             cred.status = 'VALID';
+            cred.cachedStatus = 'VALID';
             return true; // Now available
         }
         return !rateLimitInfo.isRateLimited;
@@ -57,6 +58,7 @@ public markCredentialRateLimited(credentialId: string, model: string, durationSe
             expiresAt: expiresAt,
         };
         credential.status = 'RATE_LIMITED';
+        credential.cachedStatus = 'RATE_LIMITED';
         console.log(`Credential ${credentialId} for model ${model} is rate limited until ${new Date(expiresAt).toISOString()}`);
 
         // Optional: You can still use setTimeout to log when it expires, but the primary logic is now based on expiresAt timestamp
