@@ -68,11 +68,11 @@ app.use("/v1/*", authInitializer);
 app.use("/v1/*", openAIApiKeyAuth);
 
 // Setup route handlers
-app.route("/v1", OpenAIRoute);
+app.route("/", OpenAIRoute);
 app.route("/v1/debug", DebugRoute);
 
 // Add individual debug routes to main app for backward compatibility
-app.route("/v1", DebugRoute);
+app.route("/", DebugRoute);
 
 // Root endpoint - basic info about the service
 app.get("/", (c) => {
