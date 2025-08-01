@@ -51,6 +51,12 @@ app.use("*", async (c, next) => {
 			`${url.origin}${newPath}?${url.searchParams.toString()}`,
 			c.req.raw
 		);
+	} else if (url.pathname === "/gemini-2.5-pro:generateContent") {
+		const newPath = `/v1/models/gemini-2.5-pro:generateContent`;
+		c.req.raw = new Request(
+			`${url.origin}${newPath}?${url.searchParams.toString()}`,
+			c.req.raw
+		);
 	}
 	await next();
 });
