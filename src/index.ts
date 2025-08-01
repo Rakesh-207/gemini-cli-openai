@@ -42,6 +42,19 @@ app.use("*", async (c, next) => {
 	await next();
 });
 
+// Middleware to handle incorrect URL routing from claude-code-router
+app.use("*", async (c, next) => {
+	const url = new URL(c.req.url);
+	if (url.pathname === "/gemini-2.5-pro:streamGenerateContent") {
+		const newPath = `/v1/models/gemini-2.5-pro:streamGenerateContent`;
+		c.req.raw = new Request(
+			`${url.origin}${newPath}?${url.searchParams.toString()}`,
+			c.req.raw
+		);
+	}
+	await next();
+});
+
 // Apply auth initializer middleware
 app.use("/v1/*", authInitializer);
 
