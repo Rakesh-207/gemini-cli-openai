@@ -19,7 +19,7 @@ type Variables = {
 export const OpenAIRoute = new Hono<{ Bindings: Env, Variables: Variables }>();
 
 // List available models
-OpenAIRoute.get("/models", async (c) => {
+OpenAIRoute.get("/v1/models", async (c) => {
 	const modelData = getAllModelIds().map((modelId) => ({
 		id: modelId,
 		object: "model",
@@ -34,7 +34,7 @@ OpenAIRoute.get("/models", async (c) => {
 });
 
 // Chat completions endpoint
-OpenAIRoute.post("/chat/completions", async (c) => {
+OpenAIRoute.post("/v1/chat/completions", async (c) => {
 	try {
 		console.log("Chat completions request received");
 		const body = await c.req.json<ChatCompletionRequest>();
