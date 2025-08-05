@@ -42,25 +42,6 @@ app.use("*", async (c, next) => {
 	await next();
 });
 
-// Middleware to handle incorrect URL routing from claude-code-router
-app.use("*", async (c, next) => {
-	const url = new URL(c.req.url);
-	if (url.pathname === "/gemini-2.5-pro:streamGenerateContent") {
-		const newPath = `/v1/models/gemini-2.5-pro:streamGenerateContent`;
-		c.req.raw = new Request(
-			`${url.origin}${newPath}?${url.searchParams.toString()}`,
-			c.req.raw
-		);
-	} else if (url.pathname === "/gemini-2.5-pro:generateContent") {
-		const newPath = `/v1/models/gemini-2.5-pro:generateContent`;
-		c.req.raw = new Request(
-			`${url.origin}${newPath}?${url.searchParams.toString()}`,
-			c.req.raw
-		);
-	}
-	await next();
-});
-
 // Apply auth initializer middleware
 app.use("/v1/*", authInitializer);
 
@@ -68,8 +49,8 @@ app.use("/v1/*", authInitializer);
 app.use("/v1/*", openAIApiKeyAuth);
 
 // Setup route handlers
-app.route("/v1", OpenAIRoute);
-app.route("/v1/debug", DebugRoute);
+app.route("/", OpenAIRoute);
+app.route("/debug", DebugRoute);
 
 // Root endpoint - basic info about the service
 app.get("/", (c) => {
