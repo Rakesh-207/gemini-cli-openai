@@ -498,7 +498,6 @@ private async performRequest(
                 console.log(`Auth error ${response.status}. The token might be invalid. Trying next credential.`);
                 // The token is likely invalid, so we mark it as expired and move on.
                 credential.status = 'EXPIRED';
-                credential.cachedStatus = 'EXPIRED';
                 continue;
             }
 
